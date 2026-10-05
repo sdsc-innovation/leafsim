@@ -31,8 +31,8 @@ def conditional_highlight(s: pd.Series, val: str) -> list[str]:
 def get_similarity_table(
     df_train: pd.DataFrame,
     df_test: pd.DataFrame,
-    top_n_distances_id: np.ndarray,
-    top_n_distances: np.ndarray,
+    top_n_ids: np.ndarray,
+    top_n_similarities: np.ndarray,
     car_to_explain_id: int,
     top_n_features: list[str],
     formatting: dict[str, str],
@@ -47,8 +47,8 @@ def get_similarity_table(
 
     :param df_train: Dataframe containing training examples (from which the most similar cars are identified)
     :param df_test: Dataframe containing test examples (cars we want to generate explanations for)
-    :param top_n_distances_id: The indices of the training cars that are most similar to a test car
-    :param top_n_distances: The Hamming distance of the most similar training cars (same order as top_n_distances_id)
+    :param top_n_ids: The indices of the training cars that are most similar to a test car
+    :param top_n_similarities: The LeafSim score of the most similar training cars (same order as top_n_ids)
     :param car_to_explain_id: Index of the test car to explain
     :param top_n_features: The list of feature columns to visualise in the stylised table
     :param formatting: Custom formatting of the feature columns passed on to pd.DataFrame().style.format(...)
@@ -57,9 +57,9 @@ def get_similarity_table(
     d = df_test.loc[car_to_explain_id, top_n_features + ["predicted_price"]].to_dict()
 
     df_to_show = (
-        df_train.loc[top_n_distances_id[car_to_explain_id, :]]
+        df_train.loc[top_n_ids[car_to_explain_id, :]]
         .assign(
-            similarity=lambda x: 1 - top_n_distances[car_to_explain_id, :],
+            similarity=top_n_similarities[car_to_explain_id, :],
             # Measure the relative price difference between similar cars and the car to explain
             # This column is used to colour the price column shown in the table
             diff_price=lambda x: (x.price - d["predicted_price"]).abs() / d["predicted_price"],
@@ -68,7 +68,8 @@ def get_similarity_table(
             diff_year=lambda x: (x.year - d["year"]).abs() / d["year"],
             diff_enginesize=lambda x: (x.enginesize - d["enginesize"]).abs() / d["enginesize"],
         )
-        .sort_values(by="similarity", ascending=False)
+        # Stable sort keeps LeafSim's tie order (lowest training index first)
+        .sort_values(by="similarity", ascending=False, kind="stable")
         .reset_index(drop=True)
     )
 
@@ -125,7 +126,7 @@ def get_similarity_table(
 def get_similarity_plots(
     df_train: pd.DataFrame,
     df_test: pd.DataFrame,
-    distances: np.ndarray,
+    similarities: np.ndarray,
     car_to_explain_id: int,
     test_avg_similarity: np.ndarray,
 ) -> None:
@@ -139,15 +140,15 @@ def get_similarity_plots(
 
     An interpretation of these plots can be found in the notebook.
 
-    :param df_train:
-    :param df_test:
-    :param distances:
-    :param car_to_explain_id:
-    :param test_avg_similarity:
+    :param df_train: Dataframe containing training examples
+    :param df_test: Dataframe containing test examples
+    :param similarities: LeafSim scores between every test car and every training car
+    :param car_to_explain_id: Index of the test car to explain
+    :param test_avg_similarity: Average LeafSim score of the top 50 training cars for each test car
     :return: Shows matplotlib figure
     """
     tmp = pd.DataFrame(
-        {"similarity": 1 - distances[car_to_explain_id, :], "price": df_train.price}
+        {"similarity": similarities[car_to_explain_id, :], "price": df_train.price}
     )
 
     fig, axes = plt.subplots(1, 2, figsize=(20, 8))

@@ -11,14 +11,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.11"
+
+      - name: Test
+        run: |
+          uv sync --group dev
+          uv run pytest tests/
+
       - name: Get version
         id: version
         run: |
           echo "version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")" >> $GITHUB_OUTPUT
 
-      - name: Tag and push
+      - name: Build sdist and wheel
+        run: uv build
+
+      # Creates the tag and a GitHub release with the built distributions attached.
+      # Fails if a release for this version already exists: bump the version first.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v${{ steps.version.outputs.version }}"
-          git push --tags
+          gh release create "v${{ steps.version.outputs.version }}" dist/* \
+            --target "${{ github.sha }}" \
+            --title "v${{ steps.version.outputs.version }}" \
+            --generate-notes
